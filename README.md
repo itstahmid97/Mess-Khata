@@ -90,3 +90,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ## 🔑 ডিফল্ট এডমিন তথ্য
 - **ম্যানেজার পাসওয়ার্ড:** `@@Meal##1`
 - **মেম্বারদের প্রাথমিক পাসওয়ার্ড:** `123`
+
+
+Live preview: https://mess-khata-seven.vercel.app/
