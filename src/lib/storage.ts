@@ -381,3 +381,77 @@ export function restoreBackupFromJson(jsonString: string): { success: boolean; m
     return { success: false, message: 'ফাইলটি সঠিকভাবে পড়া যায়নি। অনুগ্রহ করে সঠিক JSON ফাইল নির্বাচন করুন।' };
   }
 }
+
+
+// ========================================================
+// SUPER ADMIN & MESS DELETION FUNCTIONS
+// ========================================================
+
+/**
+ * Fetch all messes live directly from Supabase (for Founder Super Admin)
+ */
+export async function fetchAllMessesFromSupabase(): Promise<MessData[]> {
+  const client = getSupabaseClient();
+  if (!client) {
+    // If client unavailable, fallback to local storage
+    return getStoredMesses();
+  }
+  try {
+    const { data, error } = await client
+      .from('messes')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      console.warn('Failed to fetch messes from Supabase:', error);
+      return getStoredMesses();
+    }
+
+    const mapped = data.map(mapSupabaseToMess);
+    
+    // Also merge with any local messes to be comprehensive
+    const local = getStoredMesses();
+    const mergedMap = new Map<string, MessData>();
+    local.forEach((m) => mergedMap.set(m.id, m));
+    mapped.forEach((m) => mergedMap.set(m.id, m));
+
+    return Array.from(mergedMap.values());
+  } catch (err) {
+    console.warn('Error querying Supabase for all messes:', err);
+    return getStoredMesses();
+  }
+}
+
+/**
+ * Delete a mess completely from Supabase database and LocalStorage
+ */
+export async function deleteMess(messId: string): Promise<boolean> {
+  try {
+    // 1. Delete from Supabase cloud database
+    const client = getSupabaseClient();
+    if (client) {
+      const { error } = await client.from('messes').delete().eq('id', messId);
+      if (error) {
+        console.warn('Supabase delete warning:', error.message);
+      }
+    }
+
+    // 2. Delete from LocalStorage
+    if (typeof window !== 'undefined') {
+      const all = getStoredMesses().filter((m) => m.id !== messId);
+      localStorage.setItem(STORAGE_KEY_MESSES, JSON.stringify(all));
+      saveCrashBackup(all);
+
+      // 3. Clear session if currently logged into this mess
+      const session = getStoredSession();
+      if (session?.messId === messId) {
+        saveSession(null);
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Failed to delete mess:', err);
+    return false;
+  }
+}

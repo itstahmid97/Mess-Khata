@@ -30,9 +30,11 @@ ALTER TABLE public.messes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public select on messes" ON public.messes;
 DROP POLICY IF EXISTS "Allow public insert on messes" ON public.messes;
 DROP POLICY IF EXISTS "Allow public update on messes" ON public.messes;
+DROP POLICY IF EXISTS "Allow public delete on messes" ON public.messes;
 DROP POLICY IF EXISTS "Allow public read for messes" ON public.messes;
 DROP POLICY IF EXISTS "Allow public insert for messes" ON public.messes;
 DROP POLICY IF EXISTS "Allow public update for messes" ON public.messes;
+DROP POLICY IF EXISTS "Allow public delete for messes" ON public.messes;
 
 -- 5. Create wide open anon policies for multi-mess sync
 CREATE POLICY "Allow public select on messes" 
@@ -45,4 +47,8 @@ CREATE POLICY "Allow public insert on messes"
 
 CREATE POLICY "Allow public update on messes" 
     ON public.messes FOR UPDATE 
+    USING (true);
+
+CREATE POLICY "Allow public delete on messes" 
+    ON public.messes FOR DELETE 
     USING (true);

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { MessData, Member, FixedExpenseSegment, MonthArchive, MessCalculations, DepositEntry } from '../types';
 import { formatTaka, toBengaliNumber, generateId, getCurrentMonthKey, getCurrentMonthNameBengali } from '../lib/helpers';
+import { deleteMess } from '../lib/storage';
 
 interface AdminPanelProps {
   mess: MessData;
@@ -60,6 +61,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newAdminPass, setNewAdminPass] = useState('');
   const [confirmAdminPass, setConfirmAdminPass] = useState('');
   const [passMessage, setPassMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  // Delete Mess State
+  const [showDeleteMessModal, setShowDeleteMessModal] = useState(false);
+  const [deleteConfirmationInput, setDeleteConfirmationInput] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeletingMess, setIsDeletingMess] = useState(false);
 
   // Open Member Modal
   const handleOpenAddMember = () => {
@@ -258,6 +265,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setCurrentAdminPass('');
     setNewAdminPass('');
     setConfirmAdminPass('');
+  };
+
+  // Delete Mess Permanently
+  const handleConfirmDeleteMess = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError('');
+
+    if (deleteConfirmationInput.trim() !== mess.adminPassword) {
+      setDeleteError('ভুল এডমিন পাসওয়ার্ড! মেসটি মুছতে বর্তমান এডমিন পাসওয়ার্ড লিখুন।');
+      return;
+    }
+
+    setIsDeletingMess(true);
+    try {
+      await deleteMess(mess.id);
+      alert(`"${mess.name}" মেসটি ডাটাবেজ থেকে সম্পূর্ণ মুছে ফেলা হয়েছে।`);
+      window.location.href = '/';
+    } catch {
+      setDeleteError('মেসটি মুছতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+      setIsDeletingMess(false);
+    }
   };
 
   return (
@@ -588,6 +616,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               পাসওয়ার্ড পরিবর্তন করুন
             </button>
           </form>
+
+          {/* Danger Zone: Delete Mess */}
+          <div className="mt-10 pt-6 border-t-2 border-rose-100">
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm sm:text-base font-bold text-rose-950">
+                    মেস সম্পূর্ণ মুছে ফেলুন (Delete This Mess)
+                  </h4>
+                  <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                    আপনি যদি এই মেসের কার্যক্রম চিরতরে বন্ধ করতে চান, তবে এখান থেকে মেসটি মুছে ফেলতে পারেন। এর ফলে মেসের সকল সদস্যের প্রোফাইল, মিলের খাতা, বাজার খরচ ও জমার সমস্ত রেকর্ড ডাটাবেজ থেকে স্থায়ীভাবে ডিলিট হয়ে যাবে।
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteConfirmationInput('');
+                      setDeleteError('');
+                      setShowDeleteMessModal(true);
+                    }}
+                    className="mt-4 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>মেস মুছে ফেলুন</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -742,6 +802,67 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 হ্যাঁ, মাস ক্লোজ ও আর্কাইভ করুন
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Mess Confirmation Modal */}
+      {showDeleteMessModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-bold text-gray-900 mb-1">
+              মেস মুছে ফেলার চূড়ান্ত নিশ্চিতকরণ
+            </h3>
+
+            <p className="text-xs text-rose-600 font-medium mb-4">
+              &quot;{mess.name}&quot; (কোড: {mess.code}) মেসটি সম্পূর্ণ ডাটাবেজ থেকে মুছে যাবে। এটি আর ফিরিয়ে আনা সম্ভব হবে না।
+            </p>
+
+            {deleteError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {deleteError}
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmDeleteMess} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  নিশ্চিত করতে বর্তমান এডমিন পাসওয়ার্ড লিখুন:
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={deleteConfirmationInput}
+                  onChange={(e) => setDeleteConfirmationInput(e.target.value)}
+                  placeholder="এডমিন পাসওয়ার্ড..."
+                  className="w-full text-sm px-3.5 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 font-mono"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteMessModal(false)}
+                  disabled={isDeletingMess}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDeletingMess}
+                  className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeletingMess ? 'মুছে ফেলা হচ্ছে...' : 'হ্যাঁ, স্থায়ীভাবে মুছে ফেলুন'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
