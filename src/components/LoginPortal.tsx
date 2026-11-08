@@ -21,7 +21,7 @@ import { APP_NAME, APP_TAGLINE, DEFAULT_ADMIN_PASSWORD } from '../lib/constants'
 
 interface LoginPortalProps {
   onLoginSuccess: (session: UserSession, mess: MessData) => void;
-  onTryDemo: () => void;
+  onTryDemo: (role: 'manager' | 'member') => void;
 }
 
 export const LoginPortal: React.FC<LoginPortalProps> = ({
@@ -241,16 +241,29 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
-                {/* 1-Click Demo Shortcut */}
-                <div className="pt-4 border-t border-gray-100 text-center">
-                  <button
-                    type="button"
-                    onClick={onTryDemo}
-                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Sparkles className="w-4 h-4 text-emerald-600" />
-                    <span>ডেমো শান্তিনীড় মেস টেস্ট করুন (নাহিদ, তাসিন, শাওন...)</span>
-                  </button>
+                {/* 1-Click Demo Shortcuts without password */}
+                <div className="pt-4 border-t border-gray-100 space-y-2">
+                  <div className="text-[11px] font-bold text-gray-500 text-center uppercase tracking-wider">
+                    পাসওয়ার্ড ছাড়া শান্তিনীড় মেস টেস্ট করুন:
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onTryDemo('manager')}
+                      className="py-2.5 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold border border-purple-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Shield className="w-3.5 h-3.5 text-purple-700" />
+                      <span>👑 ম্যানেজার ডেমো</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onTryDemo('member')}
+                      className="py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold border border-emerald-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <User className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>👤 মেম্বার ডেমো</span>
+                    </button>
+                  </div>
                 </div>
               </form>
             ) : (

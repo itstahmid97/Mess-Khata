@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { MessData, Member, UserSession } from '../types';
 import { APP_NAME, APP_TAGLINE } from '../lib/constants';
+import { getSyncStatus } from '../lib/storage';
 
 interface NavbarProps {
   currentMess: MessData;
@@ -50,6 +51,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
 }) => {
+  const syncStatus = getSyncStatus();
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-xs">
       {/* Top Notice Bar */}
@@ -69,11 +72,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onOpenBackup}
               className="flex items-center gap-1.5 hover:text-emerald-200 transition-colors cursor-pointer text-[11px]"
-              title="ব্রাউজার স্বয়ংক্রিয় ব্যাকআপ সক্রিয়"
+              title="ডাটাবেজ সিঙ্ক ও ব্যাকআপ স্ট্যাটাস"
             >
               <Database className="w-3.5 h-3.5 text-emerald-300" />
-              <span className="hidden sm:inline">ব্রাউজার ব্যাকআপ সেভড</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="hidden sm:inline">
+                {syncStatus.isOnline ? 'ক্লাউড সিঙ্কড' : 'অফলাইন মোড (লোকালে সেভড)'}
+              </span>
+              <span className={`w-2 h-2 rounded-full ${syncStatus.isOnline ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`}></span>
             </button>
 
             <span className="text-emerald-400">|</span>

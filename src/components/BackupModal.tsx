@@ -11,22 +11,18 @@ import {
   RefreshCw, 
   ShieldCheck,
   Cloud,
-  Key,
-  ExternalLink
+  Layers,
+  Sparkles
 } from 'lucide-react';
 import { 
   downloadBackupJson, 
   restoreBackupFromJson, 
   getCrashBackupInfo,
-  syncAllMessesToSupabase 
+  syncAllMessesToSupabase,
+  getSyncStatus,
+  SyncStatus
 } from '../lib/storage';
-import { 
-  getSupabaseUrl, 
-  getSupabaseAnonKey, 
-  setSupabaseCredentials, 
-  isSupabaseReady, 
-  DEFAULT_SUPABASE_URL 
-} from '../lib/supabase';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 interface BackupModalProps {
   isOpen: boolean;
@@ -41,20 +37,12 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  // Supabase credentials state
-  const [supabaseUrl, setSupabaseUrlState] = useState(DEFAULT_SUPABASE_URL);
-  const [anonKeyInput, setAnonKeyInput] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isCloudReady, setIsCloudReady] = useState(false);
+  const [syncStatus, setSyncStatusState] = useState<SyncStatus>({ isOnline: false, lastSyncAt: null, errorMessage: null });
 
   useEffect(() => {
     if (isOpen) {
-      const url = getSupabaseUrl();
-      const key = getSupabaseAnonKey();
-      setSupabaseUrlState(url);
-      setAnonKeyInput(key);
-      setIsCloudReady(isSupabaseReady());
+      setSyncStatusState(getSyncStatus());
     }
   }, [isOpen]);
 
@@ -62,21 +50,12 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
   const backupInfo = getCrashBackupInfo();
 
-  // Save Supabase key and trigger sync
-  const handleSaveAndSyncSupabase = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleForceSync = async () => {
     setStatusMessage(null);
-
-    if (!anonKeyInput.trim()) {
-      setStatusMessage({ type: 'error', text: 'অনুগ্রহ করে Supabase Anon Key লিখুন!' });
-      return;
-    }
-
-    setSupabaseCredentials(supabaseUrl.trim(), anonKeyInput.trim());
     setIsSyncing(true);
     const res = await syncAllMessesToSupabase();
     setIsSyncing(false);
-    setIsCloudReady(isSupabaseReady());
+    setSyncStatusState(getSyncStatus());
 
     if (res.success) {
       setStatusMessage({ type: 'success', text: res.message });
@@ -90,7 +69,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     downloadBackupJson();
     setStatusMessage({
       type: 'success',
-      text: 'আপনার ব্যাকআপ ফাইলটি (.json) সফলভাবে ডিভাইসে ডাউনলোড হয়েছে!',
+      text: 'আপনার সম্পূর্ণ মেসের ব্যাকআপ ফাইলটি (.json) সফলভাবে ডিভাইসে ডাউনলোড হয়েছে!',
     });
   };
 
@@ -131,10 +110,10 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           </div>
           <div>
             <h3 className="text-lg font-bold text-gray-900">
-              ডাটাবেজ কানেকশন ও ব্যাকআপ সেন্টার
+              ডাটা নিরাপত্তা ও ডাবল লেয়ার ব্যাকআপ সেন্টার
             </h3>
             <p className="text-xs text-gray-500">
-              Supabase ক্লাউড ডাটাবেজ এবং অফলাইন ব্রাউজার ব্যাকআপ
+              ক্লাউড ডাটাবেজ এবং অফলাইন ব্রাউজার ব্যাকআপ ব্যবস্থা
             </p>
           </div>
         </div>
@@ -156,60 +135,48 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           </div>
         )}
 
-        {/* SECTION 1: SUPABASE CLOUD DATABASE CONNECTION */}
-        <div className="p-4 rounded-2xl bg-slate-900 text-white border border-slate-700 mb-5">
+        {/* SECTION 1: CLOUD DATABASE STATUS */}
+        <div className="p-4 rounded-2xl bg-slate-900 text-white border border-slate-700 mb-4">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Cloud className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-white">১. Supabase ক্লাউড ডাটাবেজ</span>
+              <span className="text-xs font-bold text-white">১ম লেয়ার: Supabase ক্লাউড ডাটাবেজ</span>
             </div>
             <span
               className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                isCloudReady
+                syncStatus.isOnline
                   ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
                   : 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
               }`}
             >
-              {isCloudReady ? '🟢 ক্লাউড সক্রিয় (Connected)' : '🟡 API Key প্রয়োজন'}
+              {syncStatus.isOnline ? '🟢 ক্লাউডে সংরক্ষিত' : '🟡 অফলাইন মোড (লোকালে সেভ)'}
             </span>
           </div>
 
-          <p className="text-[11px] text-gray-400 mb-3">
-            প্রজেক্ট URL: <code className="text-emerald-300 font-mono text-[10px]">{supabaseUrl}</code>
+          <p className="text-[11px] text-gray-400 mb-3 leading-relaxed">
+            {syncStatus.isOnline
+              ? 'আপনার সমস্ত মেসের তথ্য নিরাপদে ক্লাউড ডাটাবেজে স্বয়ংক্রিয়ভাবে সিঙ্ক হচ্ছে।'
+              : 'ক্লাউড সংযোগ সক্রিয় না থাকলেও চিন্তা নেই, আপনার ব্রাউজারে সমস্ত এন্ট্রি সম্পূর্ণ সুরক্ষিত রয়েছে।'}
           </p>
 
-          <form onSubmit={handleSaveAndSyncSupabase} className="space-y-2.5">
-            <div>
-              <label className="block text-[11px] font-semibold text-gray-300 mb-1">
-                Supabase Anon Key পেস্ট করুন:
-              </label>
-              <input
-                type="password"
-                placeholder="eyJh..."
-                value={anonKeyInput}
-                onChange={(e) => setAnonKeyInput(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSyncing}
-              className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'সিঙ্ক হচ্ছে...' : 'সেভ করুন ও ক্লাউডে সিঙ্ক করুন'}</span>
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={handleForceSync}
+            disabled={isSyncing}
+            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'সিঙ্ক হচ্ছে...' : 'এখনই সমস্ত মেসের ডাটা ক্লাউডে সিঙ্ক করুন'}</span>
+          </button>
         </div>
 
-        {/* SECTION 2: FAIL-SAFE BROWSER BACKUP & JSON FILE */}
-        <div className="p-4 rounded-2xl bg-teal-50/70 border border-teal-200 mb-5">
+        {/* SECTION 2: FAIL-SAFE BROWSER STORAGE */}
+        <div className="p-4 rounded-2xl bg-teal-50/70 border border-teal-200 mb-4">
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-xs font-bold text-teal-950">
-                ২. ব্রাউজার অফলাইন ব্যাকআপ (Fail-Safe)
+                ২য় লেয়ার: ব্রাউজার অফলাইন সুরক্ষা (Fail-Safe)
               </span>
             </div>
             <span className="text-[10px] font-bold bg-teal-100 text-teal-800 px-2 py-0.5 rounded">
@@ -218,16 +185,16 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           </div>
 
           <p className="text-xs text-teal-900 leading-relaxed">
-            সার্ভার বা ইন্টারনেটে কোনো সমস্যা হলেও আপনার কোনো ডাটা হারাবে না। প্রতিটি এন্ট্রি রিয়েলটাইমে ব্রাউজারের মেমরিতে সংরক্ষিত থাকে।
+            সার্ভারে বা নেটওয়ার্কে কোনো সমস্যা হলেও ব্রাউজারে মেসের সমস্ত হিসাব সুরক্ষিত থাকবে।
           </p>
           {backupInfo?.timestamp && (
             <div className="mt-2 text-[11px] text-teal-800 font-mono">
-              সর্বশেষ ব্যাকআপ: {new Date(backupInfo.timestamp).toLocaleTimeString('bn-BD')}
+              সর্বশেষ লোকাল স্ন্যাপশট: {new Date(backupInfo.timestamp).toLocaleTimeString('bn-BD')}
             </div>
           )}
         </div>
 
-        {/* JSON FILE DOWNLOAD & RESTORE */}
+        {/* SECTION 3: JSON FILE DOWNLOAD & RESTORE */}
         <div className="space-y-2.5">
           <button
             onClick={handleDownload}

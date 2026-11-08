@@ -1,11 +1,50 @@
 import { MessData, UserSession } from '../types';
 import { INITIAL_DEMO_MESS, DEFAULT_SHARED_UTILITIES, DEFAULT_ADMIN_PASSWORD } from './constants';
 import { getCurrentMonthKey, getCurrentMonthNameBengali, generateId } from './helpers';
-import { getSupabaseClient, isSupabaseReady } from './supabase';
+import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEY_MESSES = 'mess_khata_all_messes_v2';
 const STORAGE_KEY_SESSION = 'mess_khata_current_session_v2';
 const STORAGE_KEY_BACKUP = 'mess_khata_crash_backup_snapshot_v2';
+const STORAGE_KEY_SYNC_STATUS = 'mess_khata_last_sync_status';
+
+export interface SyncStatus {
+  isOnline: boolean;
+  lastSyncAt: string | null;
+  errorMessage: string | null;
+}
+
+export function getSyncStatus(): SyncStatus {
+  if (typeof window === 'undefined') {
+    return { isOnline: false, lastSyncAt: null, errorMessage: null };
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SYNC_STATUS);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // fallback
+  }
+  return {
+    isOnline: isSupabaseConfigured,
+    lastSyncAt: null,
+    errorMessage: isSupabaseConfigured ? null : 'Supabase ডাটাবেজ API Key যুক্ত করা হয়নি (লোকাল মোড সক্রিয়)',
+  };
+}
+
+function updateSyncStatus(isOnline: boolean, error?: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const status: SyncStatus = {
+      isOnline,
+      lastSyncAt: isOnline ? new Date().toISOString() : getSyncStatus().lastSyncAt,
+      errorMessage: error || null,
+    };
+    localStorage.setItem(STORAGE_KEY_SYNC_STATUS, JSON.stringify(status));
+    window.dispatchEvent(new CustomEvent('mess_khata_sync_status_changed', { detail: status }));
+  } catch {
+    // ignore
+  }
+}
 
 export function getStoredMesses(): MessData[] {
   if (typeof window === 'undefined') return [INITIAL_DEMO_MESS];
@@ -52,7 +91,7 @@ export function saveSession(session: UserSession | null): void {
   }
 }
 
-// Secure Lookup: Find mess by Code or Name (case-insensitive)
+// Secure Lookup: Find mess by Code or Name (local first, then Supabase)
 export async function findMessByCodeOrName(query: string): Promise<MessData | null> {
   const clean = query.trim().toLowerCase();
   if (!clean) return null;
@@ -64,7 +103,7 @@ export async function findMessByCodeOrName(query: string): Promise<MessData | nu
   );
   if (localFound) return localFound;
 
-  // 2. If Supabase configured, query Supabase
+  // 2. Query Supabase
   const client = getSupabaseClient();
   if (client) {
     try {
@@ -75,13 +114,15 @@ export async function findMessByCodeOrName(query: string): Promise<MessData | nu
         .single();
 
       if (data && !error) {
-        // save to local and return
+        updateSyncStatus(true);
         const fullMess = mapSupabaseToMess(data);
         saveMess(fullMess);
         return fullMess;
+      } else if (error) {
+        console.warn('Supabase query error:', error.message);
       }
-    } catch (err) {
-      console.warn('Supabase lookup notice:', err);
+    } catch (err: any) {
+      updateSyncStatus(false, err.message);
     }
   }
 
@@ -103,12 +144,13 @@ export function saveMess(mess: MessData): void {
       nextMesses = [...all, updated];
     }
 
+    // 1. Save to browser immediately
     localStorage.setItem(STORAGE_KEY_MESSES, JSON.stringify(nextMesses));
     saveCrashBackup(nextMesses);
 
-    // Sync to Supabase in background
+    // 2. Save to Supabase in background
     syncToSupabase(updated).catch((err) =>
-      console.warn('Supabase sync notice:', err)
+      console.warn('Supabase background sync notice:', err)
     );
   } catch (err) {
     console.error('Failed to save mess to localStorage:', err);
@@ -168,7 +210,88 @@ export function createNewMess(
   return newMess;
 }
 
-// Crash backup logic
+// Background sync to Supabase (optimized lightweight payload)
+export async function syncToSupabase(mess: MessData): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) {
+    updateSyncStatus(false, 'Supabase API Key কনফিগার করা হয়নি');
+    return false;
+  }
+  try {
+    const { error } = await client.from('messes').upsert({
+      id: mess.id,
+      code: mess.code,
+      name: mess.name,
+      admin_password: mess.adminPassword,
+      manager_name: mess.managerName || 'মেস ম্যানেজার',
+      manager_phone: mess.managerPhone || '',
+      current_month_key: mess.currentMonthKey,
+      current_month_name: mess.currentMonthName,
+      data: {
+        members: mess.members,
+        meals: mess.meals,
+        bazarEntries: mess.bazarEntries,
+        deposits: mess.deposits,
+        fixedExpenses: mess.fixedExpenses,
+        archives: mess.archives,
+      },
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn('Supabase upsert error:', error.message);
+      updateSyncStatus(false, error.message);
+      return false;
+    }
+
+    updateSyncStatus(true);
+    return true;
+  } catch (err: any) {
+    console.warn('Supabase sync network error:', err);
+    updateSyncStatus(false, err?.message || 'নেটওয়ার্ক বিচ্ছিন্ন');
+    return false;
+  }
+}
+
+export async function syncAllMessesToSupabase(): Promise<{ success: boolean; message: string }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, message: 'Supabase ডাটাবেজের সাথে সংযোগ পাওয়া যায়নি (.env.local এ API Key যুক্ত করুন)' };
+  }
+  const allMesses = getStoredMesses();
+  let count = 0;
+  for (const mess of allMesses) {
+    const ok = await syncToSupabase(mess);
+    if (ok) count++;
+  }
+  return {
+    success: true,
+    message: `সফলভাবে ${count} টি মেসের সমস্ত ডাটা ক্লাউডে সিঙ্ক করা হয়েছে!`,
+  };
+}
+
+function mapSupabaseToMess(row: any): MessData {
+  const content = row.data || {};
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    adminPassword: row.admin_password || DEFAULT_ADMIN_PASSWORD,
+    managerName: row.manager_name || 'মেস ম্যানেজার',
+    managerPhone: row.manager_phone || '',
+    currentMonthKey: row.current_month_key || getCurrentMonthKey(),
+    currentMonthName: row.current_month_name || getCurrentMonthNameBengali(),
+    members: content.members || [],
+    meals: content.meals || [],
+    bazarEntries: content.bazarEntries || [],
+    deposits: content.deposits || [],
+    fixedExpenses: content.fixedExpenses || DEFAULT_SHARED_UTILITIES,
+    archives: content.archives || [],
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+// Crash backup logic (Local Snapshot)
 function saveCrashBackup(data: MessData[]): void {
   try {
     const snapshot = {
@@ -197,6 +320,7 @@ export function getCrashBackupInfo(): { timestamp: string; count: number } | nul
   }
 }
 
+// 1-Click JSON file download
 export function downloadBackupJson(): void {
   if (typeof window === 'undefined') return;
   try {
@@ -220,6 +344,7 @@ export function downloadBackupJson(): void {
   }
 }
 
+// Restore from JSON file
 export function restoreBackupFromJson(jsonString: string): { success: boolean; message: string; count?: number } {
   try {
     const parsed = JSON.parse(jsonString);
@@ -244,6 +369,9 @@ export function restoreBackupFromJson(jsonString: string): { success: boolean; m
     localStorage.setItem(STORAGE_KEY_MESSES, JSON.stringify(messesToRestore));
     saveCrashBackup(messesToRestore);
 
+    // Sync to Supabase in background
+    syncAllMessesToSupabase().catch(() => {});
+
     return {
       success: true,
       message: `সফলভাবে ${messesToRestore.length} টি মেসের তথ্য রিস্টোর করা হয়েছে!`,
@@ -252,77 +380,4 @@ export function restoreBackupFromJson(jsonString: string): { success: boolean; m
   } catch {
     return { success: false, message: 'ফাইলটি সঠিকভাবে পড়া যায়নি। অনুগ্রহ করে সঠিক JSON ফাইল নির্বাচন করুন।' };
   }
-}
-
-// Background sync to Supabase (optimized lightweight payload)
-export async function syncToSupabase(mess: MessData): Promise<boolean> {
-  const client = getSupabaseClient();
-  if (!client) return false;
-  try {
-    const { error } = await client.from('messes').upsert({
-      id: mess.id,
-      code: mess.code,
-      name: mess.name,
-      admin_password: mess.adminPassword,
-      manager_name: mess.managerName || 'মেস ম্যানেজার',
-      manager_phone: mess.managerPhone || '',
-      current_month_key: mess.currentMonthKey,
-      current_month_name: mess.currentMonthName,
-      data: {
-        members: mess.members,
-        meals: mess.meals,
-        bazarEntries: mess.bazarEntries,
-        deposits: mess.deposits,
-        fixedExpenses: mess.fixedExpenses,
-        archives: mess.archives,
-      },
-      updated_at: new Date().toISOString(),
-    });
-    if (error) {
-      console.warn('Supabase upsert returned error:', error.message);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn('Supabase sync skipped/notice:', err);
-    return false;
-  }
-}
-
-export async function syncAllMessesToSupabase(): Promise<{ success: boolean; message: string }> {
-  const client = getSupabaseClient();
-  if (!client) {
-    return { success: false, message: 'Supabase কানেকশন সক্রিয় নয়! অনুগ্রহ করে সঠিক API Key প্রদান করুন।' };
-  }
-  const allMesses = getStoredMesses();
-  let count = 0;
-  for (const mess of allMesses) {
-    const ok = await syncToSupabase(mess);
-    if (ok) count++;
-  }
-  return {
-    success: true,
-    message: `সফলভাবে ${count} টি মেসের সমস্ত ডাটা Supabase ক্লাউডে সিঙ্ক করা হয়েছে!`,
-  };
-}
-
-function mapSupabaseToMess(row: any): MessData {
-  const content = row.data || {};
-  return {
-    id: row.id,
-    name: row.name,
-    code: row.code,
-    adminPassword: row.admin_password || DEFAULT_ADMIN_PASSWORD,
-    managerName: row.manager_name || 'মেস ম্যানেজার',
-    managerPhone: row.manager_phone || '',
-    currentMonthKey: row.current_month_key || getCurrentMonthKey(),
-    currentMonthName: row.current_month_name || getCurrentMonthNameBengali(),
-    members: content.members || [],
-    meals: content.meals || [],
-    bazarEntries: content.bazarEntries || [],
-    deposits: content.deposits || [],
-    fixedExpenses: content.fixedExpenses || DEFAULT_SHARED_UTILITIES,
-    archives: content.archives || [],
-    updatedAt: row.updated_at || new Date().toISOString(),
-  };
 }

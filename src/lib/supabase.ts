@@ -1,48 +1,29 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// User's project URL from the Supabase screenshot
-export const DEFAULT_SUPABASE_URL = 'https://msimypjjdnoujqmzleco.supabase.co';
+// User's project URL from Supabase dashboard
+export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://msimypjjdnoujqmzleco.supabase.co';
+export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export function getSupabaseUrl(): string {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('mess_khata_supabase_url') || process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  }
-  return process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-}
+export const isSupabaseConfigured = Boolean(
+  SUPABASE_URL && 
+  SUPABASE_ANON_KEY && 
+  SUPABASE_ANON_KEY.trim().length > 15 && 
+  !SUPABASE_ANON_KEY.includes('placeholder')
+);
 
-export function getSupabaseAnonKey(): string {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('mess_khata_supabase_anon_key') || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  }
-  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-}
-
-export function setSupabaseCredentials(url: string, key: string): void {
-  if (typeof window !== 'undefined') {
-    if (url) localStorage.setItem('mess_khata_supabase_url', url.trim());
-    if (key) localStorage.setItem('mess_khata_supabase_anon_key', key.trim());
-  }
-}
-
-export function isSupabaseReady(): boolean {
-  const url = getSupabaseUrl();
-  const key = getSupabaseAnonKey();
-  return Boolean(url && key && key.trim().length > 15 && !key.includes('placeholder'));
-}
+export const supabase: SupabaseClient | null = isSupabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
 export function getSupabaseClient(): SupabaseClient | null {
-  const url = getSupabaseUrl();
-  const key = getSupabaseAnonKey();
-  if (url && key && key.trim().length > 15 && !key.includes('placeholder')) {
+  if (supabase) return supabase;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (key && key.trim().length > 15) {
     try {
-      return createClient(url, key);
-    } catch (err) {
-      console.warn('Failed to initialize Supabase client:', err);
+      return createClient(SUPABASE_URL, key.trim());
+    } catch {
       return null;
     }
   }
   return null;
 }
-
-export const supabase = getSupabaseClient();
-export const isSupabaseConfigured = isSupabaseReady();

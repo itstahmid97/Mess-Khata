@@ -189,14 +189,28 @@ export default function App() {
     setSession(null);
   };
 
-  // Instant Demo Shortcut
-  const handleTryDemo = () => {
-    const demoSession: UserSession = {
-      messId: INITIAL_DEMO_MESS.id,
-      role: 'manager',
-      username: 'nahid',
-      name: 'নাহিদ হাসান',
-    };
+  // Instant Demo Shortcuts without password
+  const handleTryDemo = (role: 'manager' | 'member' = 'manager') => {
+    let demoSession: UserSession;
+    if (role === 'member') {
+      const demoMember = INITIAL_DEMO_MESS.members.find((m) => m.username === 'tasin') || INITIAL_DEMO_MESS.members[1];
+      demoSession = {
+        messId: INITIAL_DEMO_MESS.id,
+        role: 'member',
+        memberId: demoMember.id,
+        username: demoMember.username,
+        name: demoMember.name,
+      };
+    } else {
+      const demoMgr = INITIAL_DEMO_MESS.members.find((m) => m.role === 'manager') || INITIAL_DEMO_MESS.members[0];
+      demoSession = {
+        messId: INITIAL_DEMO_MESS.id,
+        role: 'manager',
+        memberId: demoMgr.id,
+        username: demoMgr.username,
+        name: demoMgr.name,
+      };
+    }
     saveSession(demoSession);
     setSession(demoSession);
     setCurrentMess(INITIAL_DEMO_MESS);
