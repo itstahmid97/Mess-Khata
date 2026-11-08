@@ -1,7 +1,7 @@
 import { MessData, UserSession } from '../types';
 import { INITIAL_DEMO_MESS, DEFAULT_SHARED_UTILITIES, DEFAULT_ADMIN_PASSWORD } from './constants';
 import { getCurrentMonthKey, getCurrentMonthNameBengali, generateId } from './helpers';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { getSupabaseClient, isSupabaseReady } from './supabase';
 
 const STORAGE_KEY_MESSES = 'mess_khata_all_messes_v2';
 const STORAGE_KEY_SESSION = 'mess_khata_current_session_v2';
@@ -65,9 +65,10 @@ export async function findMessByCodeOrName(query: string): Promise<MessData | nu
   if (localFound) return localFound;
 
   // 2. If Supabase configured, query Supabase
-  if (isSupabaseConfigured && supabase) {
+  const client = getSupabaseClient();
+  if (client) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('messes')
         .select('*')
         .or(`code.ilike.${clean},name.ilike.${clean}`)
@@ -80,7 +81,7 @@ export async function findMessByCodeOrName(query: string): Promise<MessData | nu
         return fullMess;
       }
     } catch (err) {
-      console.warn('Supabase lookup error:', err);
+      console.warn('Supabase lookup notice:', err);
     }
   }
 
@@ -106,11 +107,9 @@ export function saveMess(mess: MessData): void {
     saveCrashBackup(nextMesses);
 
     // Sync to Supabase in background
-    if (isSupabaseConfigured && supabase) {
-      syncToSupabase(updated).catch((err) =>
-        console.warn('Supabase sync skipped/notice:', err)
-      );
-    }
+    syncToSupabase(updated).catch((err) =>
+      console.warn('Supabase sync notice:', err)
+    );
   } catch (err) {
     console.error('Failed to save mess to localStorage:', err);
   }
@@ -256,14 +255,17 @@ export function restoreBackupFromJson(jsonString: string): { success: boolean; m
 }
 
 // Background sync to Supabase (optimized lightweight payload)
-async function syncToSupabase(mess: MessData): Promise<void> {
-  if (!supabase) return;
+export async function syncToSupabase(mess: MessData): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
   try {
-    await supabase.from('messes').upsert({
+    const { error } = await client.from('messes').upsert({
       id: mess.id,
       code: mess.code,
       name: mess.name,
       admin_password: mess.adminPassword,
+      manager_name: mess.managerName || 'মেস ম্যানেজার',
+      manager_phone: mess.managerPhone || '',
       current_month_key: mess.currentMonthKey,
       current_month_name: mess.currentMonthName,
       data: {
@@ -276,9 +278,32 @@ async function syncToSupabase(mess: MessData): Promise<void> {
       },
       updated_at: new Date().toISOString(),
     });
+    if (error) {
+      console.warn('Supabase upsert returned error:', error.message);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.warn('Supabase sync skipped/notice:', err);
+    return false;
   }
+}
+
+export async function syncAllMessesToSupabase(): Promise<{ success: boolean; message: string }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, message: 'Supabase কানেকশন সক্রিয় নয়! অনুগ্রহ করে সঠিক API Key প্রদান করুন।' };
+  }
+  const allMesses = getStoredMesses();
+  let count = 0;
+  for (const mess of allMesses) {
+    const ok = await syncToSupabase(mess);
+    if (ok) count++;
+  }
+  return {
+    success: true,
+    message: `সফলভাবে ${count} টি মেসের সমস্ত ডাটা Supabase ক্লাউডে সিঙ্ক করা হয়েছে!`,
+  };
 }
 
 function mapSupabaseToMess(row: any): MessData {
