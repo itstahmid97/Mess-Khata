@@ -5,9 +5,6 @@ import {
   Navbar 
 } from '../components/Navbar';
 import { 
-  CombinedOverview 
-} from '../components/CombinedOverview';
-import { 
   MealAccountView 
 } from '../components/MealAccountView';
 import { 
@@ -47,6 +44,9 @@ import {
   LoginPortal 
 } from '../components/LoginPortal';
 import { 
+  PersonalAccountView 
+} from '../components/PersonalAccountView';
+import { 
   Footer 
 } from '../components/Footer';
 
@@ -58,7 +58,7 @@ import {
   saveMess 
 } from '../lib/storage';
 import { calculateMessTotals, formatTaka, toBengaliNumber } from '../lib/helpers';
-import { printMonthlyReport } from '../lib/pdfGenerator';
+import { printMealReport, printRentReport } from '../lib/pdfGenerator';
 import { INITIAL_DEMO_MESS, APP_NAME, APP_TAGLINE } from '../lib/constants';
 
 import { 
@@ -66,7 +66,9 @@ import {
   RotateCw, 
   Sparkles, 
   ShieldAlert, 
-  Lock 
+  Lock,
+  UserCheck,
+  Users
 } from 'lucide-react';
 
 export default function App() {
@@ -74,7 +76,11 @@ export default function App() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [allMesses, setAllMesses] = useState<MessData[]>([INITIAL_DEMO_MESS]);
   const [currentMess, setCurrentMess] = useState<MessData>(INITIAL_DEMO_MESS);
-  const [activeTab, setActiveTab] = useState<string>('overview');
+  
+  // Default tab: Meal Account
+  const [activeTab, setActiveTab] = useState<string>('meal_account');
+  // View mode: 'personal' (only my meals & rent) vs 'mess' (all members)
+  const [viewMode, setViewMode] = useState<'personal' | 'mess'>('personal');
 
   // Loading animation state for logo reload
   const [isReloading, setIsReloading] = useState(false);
@@ -100,6 +106,7 @@ export default function App() {
       } else {
         setCurrentMess(loadedMesses[0] || INITIAL_DEMO_MESS);
       }
+      setViewMode(storedSession.role === 'member' ? 'personal' : 'mess');
     } else {
       // By default load demo mess
       setCurrentMess(loadedMesses[0] || INITIAL_DEMO_MESS);
@@ -180,7 +187,8 @@ export default function App() {
   const handleLoginSuccess = (newSession: UserSession, targetMess: MessData) => {
     setSession(newSession);
     setCurrentMess(targetMess);
-    setActiveTab('overview');
+    setViewMode(newSession.role === 'member' ? 'personal' : 'mess');
+    setActiveTab('meal_account');
   };
 
   // Logout handler
@@ -201,6 +209,7 @@ export default function App() {
         username: demoMember.username,
         name: demoMember.name,
       };
+      setViewMode('personal');
     } else {
       const demoMgr = INITIAL_DEMO_MESS.members.find((m) => m.role === 'manager') || INITIAL_DEMO_MESS.members[0];
       demoSession = {
@@ -210,11 +219,12 @@ export default function App() {
         username: demoMgr.username,
         name: demoMgr.name,
       };
+      setViewMode('mess');
     }
     saveSession(demoSession);
     setSession(demoSession);
     setCurrentMess(INITIAL_DEMO_MESS);
-    setActiveTab('overview');
+    setActiveTab('meal_account');
   };
 
   if (!mounted) {
@@ -263,117 +273,118 @@ export default function App() {
         onOpenAdminModal={() => setShowAdminModal(true)}
         onOpenManual={() => setShowManual(true)}
         onOpenBackup={() => setShowBackup(true)}
-        onPrintReport={() => printMonthlyReport(currentMess, calc)}
+        onPrintMealReport={() => printMealReport(currentMess, calc)}
+        onPrintRentReport={() => printRentReport(currentMess, calc)}
         onReloadApp={handleReloadApp}
         isReloading={isReloading}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        viewMode={viewMode}
+        onToggleViewMode={setViewMode}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6">
-        {/* Welcome Member Pill if logged in as Member */}
-        {session.role === 'member' && (
-          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="text-xs text-blue-200 font-bold uppercase tracking-wider">
-                মেম্বার ড্যাশবোর্ড
-              </div>
-              <h2 className="text-lg sm:text-xl font-black mt-0.5">
-                স্বাগতম, {session.name}!
-              </h2>
-              <p className="text-xs text-blue-100">
-                মেস: {currentMess.name} | আপনার খাবার ও বাসা ভাড়ার আলাদা হিসাব নিচে পর্যবেক্ষণ করুন।
-              </p>
-            </div>
-
+        {/* VIEW MODE 1: PERSONAL ACCOUNT (ONLY MY MEALS & RENT) */}
+        {viewMode === 'personal' && session.memberId ? (
+          <PersonalAccountView
+            memberId={session.memberId}
+            mess={currentMess}
+            calc={calc}
+            onSwitchToMessView={() => setViewMode('mess')}
+          />
+        ) : (
+          /* VIEW MODE 2: MESS-WIDE FULL ACCOUNT */
+          <div className="space-y-6">
+            {/* Quick Switch Banner to Personal View */}
             {session.memberId && (
-              <button
-                onClick={() => setSelectedMemberDetailId(session.memberId || null)}
-                className="px-4 py-2 bg-white text-blue-900 rounded-xl text-xs font-bold hover:bg-blue-50 transition-colors cursor-pointer self-start sm:self-auto shadow-xs"
-              >
-                আমার ব্যক্তিগত হিসাবের স্লিপ দেখুন
-              </button>
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-800 to-teal-800 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                <div className="flex items-center gap-2.5">
+                  <Users className="w-5 h-5 text-emerald-300" />
+                  <div>
+                    <span className="text-xs font-bold text-emerald-200">মেসের সার্বিক হিসাব মোড</span>
+                    <p className="text-xs text-white">
+                      আপনি বর্তমানে মেসের সকল সদস্যের তালিকা ও খাতা পর্যবেক্ষণ করছেন।
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setViewMode('personal')}
+                  className="px-3.5 py-1.5 rounded-xl bg-white text-emerald-950 font-bold text-xs hover:bg-emerald-50 transition-colors cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shadow-xs"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>👤 শুধু আমার ব্যক্তিগত হিসাব দেখুন</span>
+                </button>
+              </div>
+            )}
+
+            {/* TAB 1: SEPARATE MEAL ACCOUNT (MEAL LEDGER) */}
+            {activeTab === 'meal_account' && (
+              <MealAccountView
+                mess={currentMess}
+                calc={calc}
+                onSelectMemberForDetail={(id) => setSelectedMemberDetailId(id)}
+                loggedInMemberId={session.memberId}
+              />
+            )}
+
+            {/* TAB 2: SEPARATE RENT ACCOUNT (RENT LEDGER) */}
+            {activeTab === 'rent_account' && (
+              <RentAccountView
+                mess={currentMess}
+                calc={calc}
+                isAdmin={isAdmin}
+                onUpdateMemberRoomRent={handleUpdateMemberRoomRent}
+                loggedInMemberId={session.memberId}
+              />
+            )}
+
+            {/* TAB 3: DAILY MEALS (Lunch, Dinner, Guest, 0.25 custom steps) */}
+            {activeTab === 'daily_meals' && (
+              <DailyMealGrid
+                mess={currentMess}
+                isAdmin={isAdmin}
+                onUpdateMeals={handleUpdateMeals}
+                onOpenAdminModal={() => setShowAdminModal(true)}
+              />
+            )}
+
+            {/* TAB 4: BAZAR LIST */}
+            {activeTab === 'bazar' && (
+              <BazarList
+                mess={currentMess}
+                isAdmin={isAdmin}
+                onUpdateBazar={handleUpdateBazar}
+                onOpenAdminModal={() => setShowAdminModal(true)}
+              />
+            )}
+
+            {/* TAB 5: DEPOSITS LIST */}
+            {activeTab === 'deposits' && (
+              <DepositsList
+                mess={currentMess}
+                isAdmin={isAdmin}
+                onUpdateDeposits={handleUpdateDeposits}
+                onOpenAdminModal={() => setShowAdminModal(true)}
+              />
+            )}
+
+            {/* TAB 6: ARCHIVE HISTORY */}
+            {activeTab === 'archives' && (
+              <ArchiveViewer mess={currentMess} />
+            )}
+
+            {/* TAB 7: ADMIN CONTROL PANEL (Manager Only) */}
+            {activeTab === 'admin' && isAdmin && (
+              <AdminPanel
+                mess={currentMess}
+                calc={calc}
+                onUpdateMess={handleUpdateMess}
+                onLogoutAdmin={() => setActiveTab('meal_account')}
+              />
             )}
           </div>
-        )}
-
-        {/* TAB 1: MASTER COMBINED OVERVIEW */}
-        {activeTab === 'overview' && (
-          <CombinedOverview
-            mess={currentMess}
-            calc={calc}
-            onSelectMemberForDetail={(id) => setSelectedMemberDetailId(id)}
-            loggedInMemberId={session.memberId}
-            onNavigateToMeal={() => setActiveTab('meal_account')}
-            onNavigateToRent={() => setActiveTab('rent_account')}
-          />
-        )}
-
-        {/* TAB 2: SEPARATE MEAL ACCOUNT */}
-        {activeTab === 'meal_account' && (
-          <MealAccountView
-            mess={currentMess}
-            calc={calc}
-            onSelectMemberForDetail={(id) => setSelectedMemberDetailId(id)}
-            loggedInMemberId={session.memberId}
-          />
-        )}
-
-        {/* TAB 3: SEPARATE RENT ACCOUNT */}
-        {activeTab === 'rent_account' && (
-          <RentAccountView
-            mess={currentMess}
-            calc={calc}
-            isAdmin={isAdmin}
-            onUpdateMemberRoomRent={handleUpdateMemberRoomRent}
-            loggedInMemberId={session.memberId}
-          />
-        )}
-
-        {/* TAB 4: DAILY MEALS (Lunch, Dinner, Guest, 0.25 custom steps) */}
-        {activeTab === 'daily_meals' && (
-          <DailyMealGrid
-            mess={currentMess}
-            isAdmin={isAdmin}
-            onUpdateMeals={handleUpdateMeals}
-            onOpenAdminModal={() => setShowAdminModal(true)}
-          />
-        )}
-
-        {/* TAB 5: BAZAR LIST */}
-        {activeTab === 'bazar' && (
-          <BazarList
-            mess={currentMess}
-            isAdmin={isAdmin}
-            onUpdateBazar={handleUpdateBazar}
-            onOpenAdminModal={() => setShowAdminModal(true)}
-          />
-        )}
-
-        {/* TAB 6: DEPOSITS LIST */}
-        {activeTab === 'deposits' && (
-          <DepositsList
-            mess={currentMess}
-            isAdmin={isAdmin}
-            onUpdateDeposits={handleUpdateDeposits}
-            onOpenAdminModal={() => setShowAdminModal(true)}
-          />
-        )}
-
-        {/* TAB 7: ARCHIVE HISTORY */}
-        {activeTab === 'archives' && (
-          <ArchiveViewer mess={currentMess} />
-        )}
-
-        {/* TAB 8: ADMIN CONTROL PANEL (Manager Only) */}
-        {activeTab === 'admin' && isAdmin && (
-          <AdminPanel
-            mess={currentMess}
-            calc={calc}
-            onUpdateMess={handleUpdateMess}
-            onLogoutAdmin={() => setActiveTab('overview')}
-          />
         )}
       </main>
 
@@ -390,6 +401,7 @@ export default function App() {
         mess={currentMess}
         onSuccessLogin={() => {
           setSession((prev) => prev ? { ...prev, role: 'manager' } : null);
+          setViewMode('mess');
           setActiveTab('admin');
         }}
         onChangePassword={handleChangeAdminPassword}
@@ -425,6 +437,7 @@ export default function App() {
           };
           saveSession(newSession);
           setSession(newSession);
+          setViewMode('mess');
           setActiveTab('admin');
         }}
       />
